@@ -1,4 +1,5 @@
 # Dissertation, visualization of camera trap 2023 data across Gosforth Nature Reserve
+# Code inteded for use in R, version 12.1+402.
 
 # 1.1 - Installing and loading essential packages
 install.packages(c("here", "activity", "lubridate", "tidyverse", "camtrapR", "corrplot", "unmarked", "iNEXT", "behaviouR", "ggpubr", "dplyr"))

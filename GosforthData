@@ -1,4 +1,5 @@
 # Dissertation, visualization of camera trap 2023 data across Gosforth Nature Reserve
+# Spatial distribution, diel activity and frequency for all years of GNR data (2021, 2022, 2023)
 # Code inteded for use in R, version 12.1+402.
 
 # 1.1 - Installing and loading essential packages
@@ -18,463 +19,311 @@ library(behaviouR)
 library(bio2020)
 library(sf)
 
-# 1.2 - Reading in and joining the sequences of species data and deployment information data
-dat <- read.csv(here("speciessequences23.csv"))
-dat2 <- read.csv(here( "cameradeployments23.csv"))
+# 1.2 - Reading in data from each year and merging together.
+specdat2021 <- read.csv(here("speciessequences21.csv"))
+camdat2021 <- read.csv(here( "cameradeployments21.csv"))
 
-# use the base R merge() function to join data
-# both data sets have columns of the same name therefore don't need to specify
+specdat2022 <- read.csv(here("speciessequences22.csv"))
+camdat2022 <- read.csv(here( "cameradeployments22.csv"))
 
-join_dat <- merge(dat, dat2)
+specdat2023 <- read.csv(here("speciessequences23.csv"))
+camdat2023 <- read.csv(here( "cameradeployments23.csv"))
 
-head(join_dat)
-# 1.3 - Summarizing data 
+join_dat2021 <- merge(specdat2021, camdat2021)
 
-join_dat %>% 
-  group_by(common_name) %>%
-  summarise(Freq = n()) # look at the number of detection for each species
+join_dat2022 <- merge(specdat2022, camdat2022)
 
-# Plotting number of detections for each species.
-join_dat %>% 
-  group_by(common_name) %>%
-  summarise(n = n()) %>%
-  ggplot() +
-  geom_col(aes(x = fct_reorder(common_name, -n), y = n)) + 
-  theme_classic() + 
-  coord_flip() +
-  labs(y = "Number of records", x = "") +
-  theme(axis.line.y = element_blank())
+join_dat2023 <- merge(specdat2023, camdat2023)
 
-# 1.4 - Filtering the data to only include Gosforth Nature Reserve
-join_dat <- join_dat%>%
+# 1.3 - Filtering data to only include Gosforth data.
+join_dat2021 <- join_dat2021%>%
+  filter(subproject_name %in% c("UK_Forest_suburban_21"))
+
+join_dat2022 <- join_dat2022%>%
+  filter(subproject_name %in% c("GB_Forest_GosforthReserve_22"))
+
+join_dat2023 <- join_dat2023%>%
   filter(subproject_name %in% c("GB_Forest_GosforthReserve_23"))
 
-# Excluding sequence identifications that do not show a species (Human), or cannot be grouped (Animal)
-filter_dat <- join_dat%>%
-  dplyr::select(longitude,latitude, sequence_id,subproject_name, deployment_id, class:group_size) %>%
-  filter(!common_name %in% c("Human", "Animal", "Vehicle", "Human-Camera Trapper",
-                             "Dog-on-leash", "Blank", "No CV Result",
-                             "Equidae Family", "Bovidae Family",
-                             "Human-Pedestrian", ""))
-
-str(filter_dat$common_name)
-
-filter_dat %>% 
-  group_by(common_name) %>%
-  summarise(Freq = n()) # look at the number of detection for each species
-
-# call all birds (determined from the class column) "Bird" in the common name column
-filter_dat$common_name[filter_dat$class=="Aves"]<-"Bird"
-
-# there are only Roe Deer at Gosforth so call all cervidae/red deer "European Roe Deer"
-filter_dat$common_name[filter_dat$order=="Cetartiodactyla"] <- "European Roe Deer"
-
-# call all lagomorphs "Rabbit & Hare Family"
-filter_dat$common_name[filter_dat$order=="Lagomorpha"] <- "Rabbit and Hare Family"
-
-# call all squirrels "Eastern Gray Squirrel"
-filter_dat$common_name[filter_dat$family=="Sciuridae"] <- "Eastern Gray Squirrel"
-
-# call all domestic cats and dogs carnivorous mammals
-filter_dat$common_name[filter_dat$genus=="Canis"] <- "Carnivorous Mammal"
-filter_dat$common_name[filter_dat$common_name=="Domestic Cat"] <- "Carnivorous Mammal"
-
-# group all rodents together
-filter_dat$common_name[filter_dat$common_name=="Long-tailed Field Mouse"] <- "Rodent"
-filter_dat$common_name[filter_dat$family=="Muridae"] <- "Rodent"
-filter_dat$common_name[filter_dat$species=="Rattus"] <- "Rodent"
-filter_dat$common_name[filter_dat$common_name=="Small Mammal"] <- "Rodent" 
-
-# Grouping vulpes species as "Red Fox"
-filter_dat$common_name[filter_dat$common_name=="Vulpes Species"] <- "Red Fox"
-
-filter_dat%>%count(common_name)
-
-# Plotting filtered data
-filter_dat %>% 
-  group_by(common_name) %>%
-  summarise(n = n()) %>%
-  ggplot() +
-  geom_col(aes(x = fct_reorder(common_name, -n), y = n)) + 
-  theme_classic() + 
-  coord_flip() +
-  labs(y = "Number of records", x = "") +
-  theme(
-    axis.line.y = element_line(),
-    axis.line.x = element_line(color = "black", linewidth = 0.3)) +
-  scale_y_continuous(expand = c(0, 0))
-  
-# Plotting proportion of species at sites against 
-filter_dat %>%
-  group_by(common_name, deployment_id) %>%
-  tally() %>%
-  ungroup() %>%
-  group_by(common_name) %>%
-  summarise(n_stations = n()) %>%
-  ggplot() +
-  geom_col(aes(x = fct_reorder(common_name, -n_stations), y = n_stations/18)) + # /18 as that's the total number of camera traps
-  theme_classic() + 
-  coord_flip() +
-  labs(y = "Naive occupancy", x = "Species") +
-  theme(
-    axis.line.y = element_line(color = "black", linewidth = 0.3),
-    axis.line.x = element_line(color = "black", linewidth = 0.3)) +
-  scale_y_continuous(expand = c(0, 0))
-
-# 1.5 Sampling Effort
-
-# Reading in deployments (camera data)
-eff <- read.csv(here("cameradeployments23.csv"))
-
-# Filtering to only include essential columns and Gosforth data
-filter_eff <- eff %>%
-  dplyr::select(deployment_id:start_date, end_date, placename, quiet_period, 
-                camera_functioning, subproject_name) %>%
-  filter(subproject_name %in% c("GB_Forest_GosforthReserve_23"))
-head(filter_eff)
-
-# Sortting data by placename column
-eff2 <- filter_eff[order(filter_eff$placename),]
-
-head(eff2)
-
-eff2$start_date <- lubridate::dmy(eff2$start_date)
-eff2$end_date <- lubridate::dmy(eff2$end_date)
-
-# Creating matrix that visualizes when each camera was in operation
-camOPmatrix <- cameraOperation(eff2, 
-                               stationCol = "placename", 
-                               setupCol = "start_date", 
-                               retrievalCol = "end_date",
-                               #hasProblems = TRUE, 
-                               dateFormat   = "%Y-%m-%d") #not needed
-
-
-camOp=camOPmatrix
-
-# Creating a function to allow us to plot our camera operation matrix
-camopPlot <- function(camOp, 
-                      palette = "Heat"){
-  which.tmp <- grep(as.Date(colnames(camOp)), pattern = "01$")
-  label.tmp <- format(as.Date(colnames(camOp))[which.tmp], "%Y-%m")
-  at.tmp <- which.tmp / ncol(camOp)
-  
-  values_tmp <- sort(na.omit(unique(c(camOp))))
-  
-  if(getRversion() >= "3.6.0") {
-    image_colors <- grDevices::hcl.colors(n = length(values_tmp), 
-                                          palette = palette, rev = TRUE)
-  } else {
-    image_colors <- heat.colors(n = length(values_tmp), rev = TRUE)
-  }
-  
-  image(t(as.matrix(camOp)), xaxt = "n", yaxt = "n", col = image_colors)
-  axis(1, at = at.tmp, labels = label.tmp)
-  axis(2, at = seq(from = 0, to = 1, length.out = nrow(camOp)), labels = rownames(camOp), las = 1)
-  abline(v = at.tmp, col = rgb(0,0,0, 0.2))
-  box()
-}
-
-camopPlot(camOPmatrix) # use the function we've just created -
-# darker colour indicates camera was in the field and active, 
-# lighter colour indicates camera was in the field but malfunctioning
-
-# Turning matrix into a dataframe of camera trap operation for later use...
-camOP_df <- as.data.frame(camOPmatrix) %>%
-  rownames_to_column(., "placename") %>% 
-  pivot_longer(cols = -1, names_to = "Date") %>%
-  filter(value == 1) %>%
-  dplyr::select(-value) 
-
-# 1.6 Community Composition ------
-# Calculating species richness
-data.frame("Species observed"= unique(filter_dat$common_name), 
-           "Species count"=1:length(unique(filter_dat$common_name)))
-
-# Joining the two datasets together with merge() to use placename column
-join_dat <- merge(filter_dat, filter_eff, by = "deployment_id")
-head(join_dat)
-
-# Creating a temporary dataframe based on sampling effort dataframe
-tmp <- camOP_df
-
-# Summarise the total effort - number of days at each camera trap  
-total.obs <- tmp %>% 
-  group_by(placename) %>%
-  summarise(Effort = n())
-
-total.obs <- data.frame(total.obs) # turn the tibble into a dataframe
-unique_names <- na.omit(unique(join_dat$common_name))
-
-for (i in 1:nrow(total.obs)) {
-  tmp <- join_dat[join_dat$placename == total.obs$placename[i], ]
-  
-  for (j in 1:length(unique(join_dat$common_name))) {
-    current_name <- unique(join_dat$common_name)[j]
-    
-    # Skip empty names
-    if (current_name == "") {
-      next
-    }
-    
-    total.obs[i, current_name] <- sum(tmp$common_name == current_name)
-  }
-}
-
-
-# Test counter
-i <-1
-# For each camera trap station, count the number of individuals/observations
-for(i in 1:nrow(total.obs))
-{
-  tmp <- join_dat[join_dat$placename==total.obs$placename[i],]
-  
-  for(j in 1:length(unique(join_dat$common_name)))
-  {
-    total.obs[i,unique(join_dat$common_name)[j]] <- 
-      length(tmp$common_name[tmp$common_name==unique(join_dat$common_name)[j]])
-  }
-}
-
-####rewritten
-# Test counter
-i <- 1
-# For each camera trap station, count the number of individuals/observations
-for (i in 1:nrow(total.obs)) {
-  tmp <- join_dat[join_dat$placename == total.obs$placename[i],]
-  
-  for (j in 1:length(unique(join_dat$common_name))) {
-    current_species <- unique(join_dat$common_name)[j]
-    # Skip empty names
-    if (current_species == "") {
-      next
-    }
-    
-    total.obs[i, current_species] <- sum(tmp$common_name == current_species)
-  }
-}
-
-head(total.obs) 
-
-# Estimated species richness using iNEXT package
-# Make an empty list to store data (the iNEXT function expects a list of the data)
-site <- list()
-
-# Sum all of the observations of each species (colSums)
-# Then make it an element in the list - if we had multiple sites then each one could be an element within the list)
-site[[1]]<- colSums(total.obs[3:ncol(total.obs)])
-names(site) <- "Gosforth23" 
-# Give the list a name (function won't work unless it is a named list for some reason...)
-
-out <- iNEXT(site, datatype="abundance") # run iNEXT function
-
-out # have a look at the estimates given by the function - not just species richness but also other diversity metrics
-
-spr.est <- as.data.frame(out$iNextEst) # create dataframe of the values we need
-
-spr.est %>%
-  slice(1, 20, 40) # pull out the first row (starting point of species richness interpolation)
-# the 20th row (our observed richness value)
-# and row 40 (the extrapolated species richness estimate)
-# The columns to pay attention to are: size_based.m (the number of individuals)
-#size_based.qD (species richness),  size_based.qD.LCL 
-# size_based.qD.UCL (the lower and upper confidence intervals around our species richness estimate)
-plot_spr.est <- spr.est[-c(1, 20, 40),] %>%
-  filter(!size_based.Method == "observed") %>%
-  ggplot(aes(y = size_based.qD, x = size_based.m)) +
-  geom_line(aes(linetype = size_based.Method)) +
-  geom_ribbon(aes(ymin = size_based.qD.LCL, ymax = size_based.qD.UCL), alpha = 0.2) + 
-  scale_linetype_manual(values=c("dashed", "solid")) + 
-  labs(y = "Number of species", x = "Number of individuals", linetype = "Method") +
-  theme_classic()
-
-plot_spr.est
-
-dat.spp <- join_dat %>% # create a dataframe for chosen species that counts number of detections for each day each camera trap was operating
-  filter(common_name =="Red Foc") %>% # select our species of interest
-  dplyr::mutate(Date = as.character(strptime(start_time, "%d/%m/%Y")))%>%
-  dplyr::select(placename, common_name, Date) %>%
-  dplyr::mutate(count = 1) %>%
-  group_by(placename, Date) %>% 
-  tally() %>%
-  right_join(camOP_df) %>%
-  mutate(n = replace_na(n, 0)) %>%
-  mutate(ct.day = paste(placename, Date))
-
-
-sites <- unique(join_dat$placename)
-RAIdf <- NULL
-
-## function to generate bootstrapped confidence intervals
-
-lc <- function(boots, nboots){
-  x <- boots[order(boots)][nboots*0.025]
-  return(x)
-}
-
-uc <- function(boots, nboots){
-  x <- boots[order(boots)][nboots*0.975]
-  return(x)
-}
-
-###########
-
-nboots <- 1000 # Number of bootstraps 
-boots <- 1:nboots # Vector containing the data for each bootstrap
-
-for(j in 1:length(sites)){ # Creating a loop to cycle through the camera trap stations and calculate RAI for each one
-  
-  (time <- length(unique(dat.spp$ct.day[dat.spp$placename == sites[j]])))
-  (RAI <- sum(dat.spp$n[dat.spp$placename == sites[j]])/time)
-  
-  # Bootstrap RAI
-  lrate <- length(dat.spp$n[dat.spp$placename == sites[j]]) #number of sightings need to sample from the sample
-  
-  for(xboot in 1:nboots){
-    sam <- sample(dat.spp$n[dat.spp$placename == sites[j]], lrate, replace=T) #make a random sample 
-    boots[xboot] <- sum(sam) #add sample to vector 
-  }
-  
-  RAIdf$placename[j] <- paste(sites[j])
-  RAIdf$RAI[j] <- round((mean(boots)/time),2)*100 # calculate mean RAI per 100 days
-  RAIdf$LCI[j] <- round((lc(boots, nboots)/time),2)*100 # calculate lower 95% confidence interval for RAI
-  RAIdf$UCI[j] <- round((uc(boots, nboots)/time),2)*100 # calculate upper 95% confidence interval for RAI
-}
-
-RAIdf <- as.data.frame(do.call(cbind, RAIdf))  
-
-RAIdf %>%
-  ggplot() +
-  geom_point(aes(x = placename, y = as.numeric(RAI))) + 
-  geom_errorbar(aes(x = placename, ymin = as.numeric(LCI), ymax = as.numeric(UCI))) +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 60, hjust=1)) +
-  labs(y = "Relative abundance index\n(detections/100 CT nights)", 
-       x = "Camera trap station")
-
-# 1.7 - Occupancy 
-# Creating presence/absence matrix.
-join_dat2 <- merge(join_dat, RAIdf, by = "placename")
-
-PAmatrix <- detectionHistory(join_dat2, 
-                             species = "capreolus", 
-                             camOp = camOPmatrix, 
-                             output = "binary", 
-                             occasionLength = 7, 
-                             stationCol = "placename", 
-                             speciesCol = "species", 
-                             recordDateTimeCol = "start_time", 
-                             recordDateTimeFormat = "%d/%m/%Y %H:%M", 
-                             day1 = "station", 
-                             includeEffort = TRUE, 
-                             scaleEffort = FALSE, 
-                             timeZone = "Europe/London")
-
-
-PAmatrix
-PAmatrix$detection_history[PAmatrix$effort != 7] <- NA # assign NA to any cells in our detection history matrix where the camera trapping effort is less than 5 days (our chosen occasion length)
-
-y <- PAmatrix$detection_history # call the presence/absence matrix
-
-# Build an unmarkedFramOccu
-umf <- unmarkedFrameOccu(y = y) 
-
-summary(umf)
-
-# Fitting simple single season occupancy models without survey or site covariates (intercept model):
-
-m1 <- occu(formula = ~1 # detection formula first
-           ~1, # occupancy formula second
-           data = umf)
-
-summary(m1)
-
-m1
-backTransform(m1, 'state') #back-transform occupancy probability to original scale
-
-# 1.8 - Diel Activity
-# For European Roe Deer
-# filter the joined dataset by deer detection
-
-RDDA <- join_dat%>%
-  dplyr::select(sequence_id, deployment_id, start_time, end_time, 
-                start_date, end_date, camera_functioning, subproject_name.x, 
-                class:group_size) %>%
-  filter(common_name =="European Roe Deer")
-
-# Plotting histogram showing temporal activity of roe deer: x = hours of day, y = frequency
-activityHistogram(RDDA,
-                  allSpecies= TRUE,
-                  # species = "capreolus",
+# 1.4 - Filtering data for each year to only include relevant columns.
+join_dat2021 <- join_dat2021 %>%
+  dplyr::select(longitude, latitude, sequence_id, deployment_id, start_time, end_time,
+                camera_functioning, subproject_name, class:group_size) %>%
+  filter(common_name %in% c("European Roe Deer", "Eurasian Badger", "Red Fox"))
+
+join_dat2022 <- join_dat2022 %>%
+  dplyr::select(longitude, latitude, sequence_id, deployment_id, start_time, end_time,
+                camera_functioning, subproject_name, class:group_size) %>%
+  filter(common_name %in% c("European Roe Deer", "Eurasian Badger", "Red Fox"))
+
+join_dat2023 <- join_dat2023 %>%
+  dplyr::select(longitude, latitude, sequence_id, deployment_id, start_time, end_time,
+                camera_functioning, subproject_name, class:group_size) %>%
+  filter(common_name %in% c("European Roe Deer", "Eurasian Badger", "Red Fox"))
+
+# Joining all years of data together. 
+Totaldata <- rbind(join_dat2021, join_dat2022, join_dat2023)
+
+# 1.5 - Diel Activity for each RD, RF and EB.
+# Filter data for European Roe Deer
+RDTotal <- Totaldata %>%
+  filter(common_name == "European Roe Deer")
+
+# Varied start_time formats so ensuring both are read
+RDdate_formats <- c("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M")
+
+RDTotal$start_time <- parse_date_time(RDTotal$start_time, orders = RDdate_formats) 
+
+RDTotal <- RDTotal %>%
+  mutate(Hour = hour(start_time)) %>%
+  mutate(Hour = ifelse(Hour == 24 | (Hour >= 0 & Hour < 1), 0, Hour)) 
+
+# Plotting total Diel Activity for European Roe Deer
+activityHistogram(RDTotal,
+                  allSpecies = TRUE,
                   speciesCol = "common_name",
                   recordDateTimeCol = "start_time",
-                  recordDateTimeFormat = "%d/%m/%Y %H:%M",
                   plotR = TRUE,
                   writePNG = FALSE,
                   createDir = FALSE)
 
-# For Eurasian Badger
-EBDA <- join_dat%>%
-  dplyr::select(sequence_id, deployment_id, start_time, end_time, 
-                start_date, end_date, camera_functioning, subproject_name.x, 
-                class:group_size) %>%
-  filter(common_name =="Eurasian Badger")
+# Fixing Activity histogram, creating secondary histogram to ensure that frequencies between
+# 00:00-01:00 and 23:00 and 00:00 are seperate.
+# Resize plot to ensure x axis are clearly defined.
+RDTotal$Hour <- hour(RDTotal$start_time)
 
-activityHistogram(EBDA,
-                  allSpecies= TRUE,
-                  # species = "meles",
+hist(RDTotal$Hour, 
+     breaks = seq(-0.01, 24.5, by = 1),
+     xlab = "Time of day (hr)", 
+     xlim = c(-0.5, 24.0001),
+     ylim = c(0, 100),
+     main = "Activity for European Roe Deer") +
+  axis(side = 1, at = seq(0, 24, by = 1))
+
+# Finding out exact frequency values
+RDhour_of_day <- hour(RDTotal$start_time)
+
+# Calculate frequency of occurrences for each hour
+RDhourly_frequency <- table(RDhour_of_day)
+
+# Print the frequency for each hour
+print(RDhourly_frequency)
+
+# Filter data for Eurasian Badger
+EBTotal <- Totaldata %>%
+  filter(common_name == "Eurasian Badger")
+
+# Varied start_time formats so ensuring both are read
+EBdate_formats <- c("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M")
+
+EBTotal$start_time <- parse_date_time(EBTotal$start_time, orders = EBdate_formats)
+
+# Plotting total Diel Activity for Eurasian Badger
+activityHistogram(EBTotal,
+                  allSpecies = TRUE,
                   speciesCol = "common_name",
                   recordDateTimeCol = "start_time",
-                  recordDateTimeFormat = "%d/%m/%Y %H:%M",
+                  #recordDateTimeFormat = "%d/%m/%Y",
                   plotR = TRUE,
                   writePNG = FALSE,
                   createDir = FALSE)
-# For Red Fox.
-RFDA <- join_dat%>%
-  dplyr::select(sequence_id, deployment_id, start_time, end_time, 
-                start_date, end_date, camera_functioning, subproject_name.x, 
-                class:group_size) %>%
-  filter(common_name =="Red Fox")
 
-activityHistogram(RFDA,
-                  allSpecies= TRUE,
-                  # species = "vulpes",
+# Secondary histogram for Eurasian Badger.
+EBTotal$Hour <- hour(EBTotal$start_time)
+
+hist(EBTotal$Hour, 
+     breaks = seq(-0.01, 24.5, by = 1),
+     xlab = "Hour", 
+     xlim = c(-0.5, 24.0001),
+     ylim = c(0, 35),
+     main = "Activity for Eurasian Badger")+
+  axis(side = 1, at = seq(0, 24, by = 1))
+
+# Finding out exact frequency values
+EBhour_of_day <- hour(EBTotal$start_time)
+
+# Calculate frequency of occurrences for each hour
+EBhourly_frequency <- table(EBhour_of_day)
+
+# Print the frequency for each hour
+print(EBhourly_frequency)
+
+# Filter data for Red Fox
+RFTotal <- Totaldata %>%
+  filter(common_name == "Red Fox")
+
+# Varied start_time formats so ensuring both are read
+RFdate_formats <- c("%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M")
+
+RFTotal$start_time <- parse_date_time(RFTotal$start_time, orders = RFdate_formats)
+
+# Plotting total Diel Activity for Red Fox
+activityHistogram(RFTotal,
+                  allSpecies = TRUE,
                   speciesCol = "common_name",
                   recordDateTimeCol = "start_time",
-                  recordDateTimeFormat = "%d/%m/%Y %H:%M",
+                  #recordDateTimeFormat = "%d/%m/%Y",
                   plotR = TRUE,
                   writePNG = FALSE,
                   createDir = FALSE)
 
-# 1.9 - Frequency (y) for species of interest (Roe Deer, Eurasian Badger and Red Fox) at each camera station (x). 
+# Secondary histogram for Red Fox.
+RFTotal$Hour <- hour(RFTotal$start_time)
 
-# - Using filter_dat to produce the frequency (Count) for species of interest. 
-Count <- filter_dat %>% 
+hist(RFTotal$Hour, 
+     breaks = seq(-0.01, 24.5, by = 1),
+     xlab = "Hour", 
+     xlim = c(-0.5, 24.0001),
+     ylim = c(0, 45),
+     main = "Activity for Red Fox")+
+  axis(side = 1, at = seq(0, 24, by = 1))
+
+# Finding out exact frequency values
+RFhour_of_day <- hour(RFTotal$start_time)
+
+# Calculate frequency of occurrences for each hour
+RFhourly_frequency <- table(RFhour_of_day)
+
+# Print the frequency for each hour
+print(RFhourly_frequency)
+
+# 1.6 Statistical analysis of Diel Activity (paired t test)
+
+# Between European Roe Deer and Eurasian Badger
+DielFreqRDEB<- data.frame(
+  FreqEB = c(10, 14, 17, 11, 8, 11, 20, 3, 3, 2, 0, 2, 1, 1, 2, 5, 18, 34, 14, 7, 6, 3, 0, 0),
+  FreqRD = c(24, 20, 37, 35, 30, 42, 30, 87, 76, 68, 66, 41, 37, 52, 32, 38, 54, 86, 59, 48, 35, 31, 36, 32)
+)
+# Create means
+mean_EB <- mean(DielFreqRDEB$FreqEB)
+mean_RD <- mean(DielFreqRDEB$FreqRD)
+
+# Perform t test and print results
+t_test_result1 <- t.test(DielFreqRDEB$FreqEB, DielFreqRDEB$FreqRD, paired = TRUE)
+print(t_test_result1)
+
+# Between European Roe Deer and Red Fox
+DielFreqRDRF<- data.frame(
+  FreqRF = c(22, 20, 14, 10, 16, 12, 29, 15, 6, 4, 5, 3, 3, 1, 3, 6, 4, 10, 28, 43, 27, 14, 17, 22),
+  FreqRD = c(24, 20, 37, 35, 30, 42, 30, 87, 76, 68, 66, 41, 37, 52, 32, 38, 54, 86, 59, 48, 35, 31, 36, 32)
+)
+# Create means
+mean_RF <- mean(DielFreqRDRF$FreqRF)
+mean_RD <- mean(DielFreqRDRF$FreqRD)
+
+# Perform t test and print results
+t_test_result2 <- t.test(DielFreqRDRF$FreqRF, DielFreqRDRF$FreqRD, paired = TRUE)
+print(t_test_result2)
+
+# Between Eurasian Badger and Red Fox
+DielFreqEBRF<- data.frame(
+  FreqRF = c(22, 20, 14, 10, 16, 12, 29, 15, 6, 4, 5, 3, 3, 1, 3, 6, 4, 10, 28, 43, 27, 14, 17, 22),
+  FreqEB = c(10, 14, 17, 11, 8, 11, 20, 3, 3, 2, 0, 2, 1, 1, 2, 5, 18, 34, 14, 7, 6, 3, 0, 0)
+)
+# Create means
+mean_RF <- mean(DielFreqEBRF$FreqRF)
+mean_EB <- mean(DielFreqEBRF$FreqEB)
+
+# Perform t test and print results
+t_test_result3 <- t.test(DielFreqEBRF$FreqEB, DielFreqEBRF$FreqRF, paired = TRUE)
+print(t_test_result3)
+
+# 1.7 - Plotting frequency for species of interest (Roe Deer, Eurasian Badger, and Red Fox) at each camera station
+# Creating a total count column for each species for the year of capture
+TotalCount <- Totaldata %>% 
   group_by(common_name) %>%
   summarise(n = n())
 
-Count <- Count[c(4, 5, 6), ]
+RedTotalData <- Totaldata %>%
+  semi_join(TotalCount, by = c("common_name"))
 
-redfilter <- filter_dat %>%
-  semi_join(Count, by = c("common_name"))
-
-# Creating freqplot to produce two columns
-freqplot <- redfilter %>%
+# Creating total frequency grouped by species and year of capture
+TFreqPlot <- RedTotalData %>%
   group_by(deployment_id, common_name) %>%
   summarise(n = n())
 
 # Plot modifications
-custom_labels <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18")
-bar_width = 0.9
-group_gap_width = 0.9
+custom_labels <- c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19")
+bar_width <- 0.9
+group_gap_width <- 1.2
 
 # Ordering species
 species_order <- c("European Roe Deer", "Eurasian Badger", "Red Fox")
-freqplot$common_name <- factor(freqplot$common_name, levels = species_order)
+TFreqPlot$common_name <- factor(TFreqPlot$common_name, levels = species_order)
+
+# Creating a mapping of deployment IDs to Camera_Site numbers
+CameraNumber <- c(
+  "GB_Forest_GosforthReserve_22_loc_01 09/29/2022" = "1",
+  "GB_Forest_GosforthReserve_23_loc_01" = "1",
+  "UK_Forest_Suburban_21_loc_01 09/28/2021" = "1",
+  "GB_Forest_GosforthReserve_22_loc_02 09/29/2022" = "2",
+  "GB_Forest_GosforthReserve_23_loc_02" = "2",
+  "GB_Forest_GosforthReserve_22_loc_03 09/29/2022" = "3",
+  "GB_Forest_GosforthReserve_23_loc_03" = "3",
+  "UK_Forest_Suburban_21_loc_03 09/29/2021" = "3",
+  "GB_Forest_GosforthReserve_22_loc_04 09/29/2022" = "4",
+  "GB_Forest_GosforthReserve_23_loc_04" = "4",
+  "UK_Forest_Suburban_21_loc_04 09/28/2021" = "4",
+  "GB_Forest_GosforthReserve_23_loc_05" = "5",
+  "UK_Forest_Suburban_21_loc_05 09/28/2021" = "5",
+  "GB_Forest_GosforthReserve_22_loc_06 10/07/2022" = "6",
+  "GB_Forest_GosforthReserve_23_loc_06" = "6",
+  "UK_Forest_Suburban_21_loc_06 09/29/2021" = "6",
+  "GB_Forest_GosforthReserve_22_loc_07 09/27/2022" = "7",
+  "GB_Forest_GosforthReserve_23_loc_07" = "7",
+  "GB_Forest_GosforthReserve_22_loc_07 10/30/2022" = "7",
+  "UK_Forest_Suburban_21_loc_07 09/29/2021" = "7",
+  "GB_Forest_GosforthReserve_22_loc_08 09/30/2022" = "8",
+  "GB_Forest_GosforthReserve_23_loc_08" = "8",
+  "UK_Forest_Suburban_21_loc_08 09/30/2021" = "8",
+  "GB_Forest_GosforthReserve_22_loc_09 09/27/2022" = "9",
+  "GB_Forest_GosforthReserve_23_loc_09" = "9",
+  "UK_Forest_Suburban_21_loc_09 09/29/2021" = "9",
+  "GB_Forest_GosforthReserve_22_loc_10 09/29/2022" = "10",
+  "GB_Forest_GosforthReserve_23_loc_10" = "10",
+  "UK_Forest_Suburban_21_loc_10 09/29/2021" = "10",
+  "GB_Forest_GosforthReserve_22_loc_11 09/29/2022" = "11",
+  "UK_Forest_Suburban_21_loc_11 09/29/2021" = "11" ,
+  "GB_Forest_GosforthReserve_23_loc_11" = "11",
+  "GB_Forest_GosforthReserve_22_loc_12 09/27/2022" = "12",
+  "GB_Forest_GosforthReserve_23_loc_12" = "12",
+  "UK_Forest_Suburban_21_loc_12 09/29/2021" = "12",
+  "GB_Forest_GosforthReserve_22_loc_14 09/27/2022" = "14",
+  "GB_Forest_GosforthReserve_23_loc_14" = "14",
+  "UK_Forest_Suburban_21_loc_14 10/01/2021" = "14",
+  "GB_Forest_GosforthReserve_22_loc_15 09/29/2022" = "15",
+  "GB_Forest_GosforthReserve_23_loc_15" = "15",
+  "UK_Forest_Suburban_21_loc_15 10/01/2021" = "15",
+  "GB_Forest_GosforthReserve_22_loc_16 09/30/2022" = "16",
+  "GB_Forest_GosforthReserve_23_loc_16" = "16",
+  "UK_Forest_Suburban_21_loc_16 01/10/2021" = "16",
+  "GB_Forest_GosforthReserve_22_loc_17 09/29/2022" = "17",
+  "GB_Forest_GosforthReserve_23_loc_17" = "17",
+  "UK_Forest_Suburban_21_loc_17 09/30/2021" = "17",
+  "GB_Forest_GosforthReserve_22_loc_18 09/30/2022" = "18",
+  "GB_Forest_GosforthReserve_23_loc_18" = "18",
+  "GB_Forest_GosforthReserve_22_loc_19 09/29/2022" = "19"
+)
+
+# Adding Camera_Site column based on deployment ID mappings
+TFreqPlot <- TFreqPlot %>%
+  mutate(Camera_Site = case_when(
+    deployment_id %in% names(CameraNumber) ~ CameraNumber[deployment_id],
+    TRUE ~ NA_character_
+  ))
+
+# Ordering numeric 
+TFreqPlot <- TFreqPlot %>%
+  mutate(Camera_Site = as.numeric(Camera_Site)) %>%
+  arrange(Camera_Site)
+
+# Ordering species
+species_order <- c("European Roe Deer", "Eurasian Badger", "Red Fox")
+TFreqPlot$common_name <- factor(TFreqPlot$common_name, levels = species_order)
 
 # Plotting Frequency (y) and Camera Site (x)
-ggplot(freqplot, aes(x = deployment_id, y = n, fill = common_name)) +
-  geom_bar(stat = "identity", position = position_dodge(width = group_gap_width, preserve = "single"), width = bar_width, colour = "black", linewidth = 0.4) +
+ggplot(TFreqPlot, aes(x = as.factor(Camera_Site), y = n, fill = common_name)) +
+  geom_bar(stat = "identity", position = position_stack(), width = bar_width, color = NA) +
   scale_fill_manual(values = c("European Roe Deer" = "gray20", "Eurasian Badger" = "gray50", "Red Fox" = "gray80")) +
   theme_minimal() +
   theme(
@@ -490,65 +339,85 @@ ggplot(freqplot, aes(x = deployment_id, y = n, fill = common_name)) +
     axis.title.y = element_text(color = "black"),
     legend.position = "bottom", legend.justification = "centre", legend.direction = "horizontal", legend.key.width = unit(0.65, "cm"), legend.key.height = unit(0.35, "cm")) +
   scale_y_continuous(n.breaks = 12, expand = c(0, 0)) +
-  labs(x = "Camera site", y = "Frequency (N = 282)", title = "") +
+  labs(x = "Camera site", y = "Frequency (N = 1,622)", title = "") +
   guides(fill = guide_legend(title = NULL)) +
   scale_x_discrete(labels = custom_labels)+
   facet_wrap(~common_name)
 
-print(freqplot)
+# 1.8 - Spatial Distribution. Creating a proportional symbol map for European Roe Deer, Eurasian Badger and Red Fox
+# Install leaflet package to create spatial distribution map.
+install.packages("leaflet")
+library(leaflet)
 
-# 2.0 - Spatial Distribution, creating a proportional symbol map for European Roe Deer, Eurasian Badger and Red Fox
-# Using filter_dat to produce a data set that shows the coordinates (longitude and latitude) 
-# for ERD, EB and RF.
-SD <- filter_dat %>%
+SDTotaldata <- Totaldata %>%
   dplyr::select(common_name, latitude, longitude) %>%
   filter(common_name %in% c("European Roe Deer", "Eurasian Badger", "Red Fox")) %>%
   group_by(common_name, latitude, longitude) %>%
-  summarise(size = n()) # Assigning each set of coordinates (camera coordinates) a magnitude, essential for proportion of symbols
+  summarise(size = n())
 
-# Define species colors
-species_colours <- c("black", "blue", "red")
+# Define species colours using hexadecimal codes
+EBcolour <- "#0000FF"  # Blue
+RFcolour <- "#FF0000"  # Red
+RDcolour <- "#000000"  # Black
 
-# Adding diminutive noise to latitude and longitude so each species goes not assign at the same exact coordinate (camera trap coordinate),
-# Prevents grouping of ERD, EB and RF as "Species"
-SD$latitude <- SD$latitude + runif(nrow(SD), min = -0.00000001, max = 0.00000001)
-SD$longitude <- SD$longitude + runif(nrow(SD), min = -0.00000001, max = 0.00000001)
+# Adding diminutive noise to latitude and longitude
+SDTotaldata$latitude <- SDTotaldata$latitude + runif(nrow(SDTotaldata), min = -0.0000000001, max = 0.0000000001)
+SDTotaldata$longitude <- SDTotaldata$longitude + runif(nrow(SDTotaldata), min = -0.0000000001, max = 0.0000000001)
 
 # Scale circle size based on size
-SD$size <- 5 * sqrt(SD$size)
+SDTotaldata$size <- 3 * sqrt(SDTotaldata$size)
 
-# Create the map through leaflet
-map <- leaflet() %>%
+# Creating map
+SDmap <- leaflet() %>%
   addProviderTiles(providers$OpenStreetMap) %>%
   addCircleMarkers(
-    data = SD[SD$common_name == "Eurasian Badger", ],  # Plotting Eurasian Badger
+    data = SDTotaldata[SDTotaldata$common_name == "Eurasian Badger", ],
     lng = ~longitude,
     lat = ~latitude,
     radius = ~size,
-    color = ~species_colours[2],
-    fillOpacity = 0.8,
+    fillColor = EBcolour,
+    fillOpacity = 0.5,
+    weight = 0.2,
     group = "Eurasian Badger"
   ) %>%
   addCircleMarkers(
-    data = SD[SD$common_name == "European Roe Deer", ],  # Plotting European Roe Deer
+    data = SDTotaldata[SDTotaldata$common_name == "European Roe Deer", ],
     lng = ~longitude,
     lat = ~latitude,
     radius = ~size,
-    color = ~species_colours[1],
-    fillOpacity = 0.8,
+    fillColor = RDcolour,
+    fillOpacity = 0.5,
+    weight = 0.2,
     group = "European Roe Deer"
   ) %>%
   addCircleMarkers(
-    data = SD[SD$common_name == "Red Fox", ],  # Ploting Red Fox
+    data = SDTotaldata[SDTotaldata$common_name == "Red Fox", ],
     lng = ~longitude,
     lat = ~latitude,
     radius = ~size,
-    color = ~species_colours[3],
-    fillOpacity = 0.8,
+    fillColor = RFcolour,
+    fillOpacity = 0.5,
+    weight = 0.2,
     group = "Red Fox"
   ) %>%
   addLayersControl(overlayGroups = c("European Roe Deer", "Red Fox", "Eurasian Badger"),
                    options = layersControlOptions(collapsed = FALSE))
 
 # Print the map
-print(map)
+print(SDmap)
+
+# 1.9 - Statistical analysis of spatial distribution.
+anova_result4 <- aov(size ~ common_name, data = SDTotaldata)
+summary(anova_result4)
+print (anova_result4)
+
+# Significance level
+alpha <- 0.05
+
+# Degrees of freedom for the numerator (df1) and denominator (df2)
+df3 <- 2
+df4 <- 95
+
+# Calculate critical value
+critical_value4 <- qf(1 - alpha, df3, df4)
+print(critical_value4)

@@ -1,4 +1,4 @@
-# Dissertation, visualization of camera trap data across Gosforth Nature Reserve
+# Dissertation, visualization of camera trap 2023 data across Gosforth Nature Reserve
 # Spatial distribution, diel activity and frequency for all years of GNR data (2021, 2022, 2023)
 # Code inteded for use in R, version 12.1+402.
 
@@ -403,21 +403,56 @@ SDmap <- leaflet() %>%
   addLayersControl(overlayGroups = c("European Roe Deer", "Red Fox", "Eurasian Badger"),
                    options = layersControlOptions(collapsed = FALSE))
 
+# Fit linear regression model for Eurasian Badger
+model_badger <- lm(size ~ longitude + latitude, data = SDTotaldata)
+
+# Fit linear regression model for European Roe Deer
+model_roe <- lm(size ~ longitude + latitude, data = SDTotaldata)
+
+# Fit linear regression model for Red Fox
+model_fox <- lm(size ~ longitude + latitude, data = SDTotaldata)
+
+# Print summary of regression models
+summary(model_badger)
+summary(model_roe)
+summary(model_fox)
+
 # Print the map
 print(SDmap)
 
-# 1.9 - Statistical analysis of spatial distribution.
-anova_result4 <- aov(size ~ common_name, data = SDTotaldata)
-summary(anova_result4)
-print (anova_result4)
+# 1.9 - Statistical analysis of spatial distribution
+install.packages(c("sp", "sdep"))
+library(sp)
+library(spdep)
 
-# Significance level
-alpha <- 0.05
+# Create spatial points data frame
+SDTotaldata$latitude <- as.numeric(as.character(SDTotaldata$latitude))
+SDTotaldata$longitude <- as.numeric(as.character(SDTotaldata$longitude))
+coordinates(SDTotaldata) <- c("longitude", "latitude")
 
-# Degrees of freedom for the numerator (df1) and denominator (df2)
-df3 <- 2
-df4 <- 95
+# Create spatial weights matrix
+weights <- dnearneigh(coordinates(SDTotaldata), d1 = 0, d2 = 2)
+weights <- nb2listw(weights, style = "B")
 
-# Calculate critical value
-critical_value4 <- qf(1 - alpha, df3, df4)
-print(critical_value4)
+# Create spatial lag of size
+SDTotaldata$size_lag <- lag.listw(weights, SDTotaldata$size)
+
+# Fit spatial lag model
+SDSAmodel <- lm(size ~ common_name + size_lag, data = SDTotaldata)
+
+# Results for statistical analysis between roe deer + badger, and, red fox + badger
+# See coefficients.
+summary(SDSAmodel)
+
+# Finding statistical analysis between roe deer + fox, by ensuring red fox is reference category 
+# Fit spatial lag model with Red Fox as the reference category
+SDTotaldata$common_name <- as.factor(SDTotaldata$common_name)
+
+# Recode common_name with Red Fox as the reference category
+SDTotaldata$common_name <- relevel(SDTotaldata$common_name, ref = "Red Fox")
+
+# Fit the model again with Red Fox as the reference category
+SDSAmodel_RF <- lm(size ~ common_name + size_lag, data = SDTotaldata)
+
+# Summary of the new model
+summary(SDSAmodel_RF)
